@@ -28,7 +28,7 @@ int isValidName(char name[]) {
 void inputName(char name[]) {
     do {
         printf("Enter Name: ");
-        fgets(name, sizeof(name), stdin);
+        fgets(name, 50, stdin);
 
         name[strcspn(name, "\n")] = '\0';
 
