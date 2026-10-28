@@ -1,17 +1,8 @@
 #include <stdio.h>
-#include <stdlib.h>
 #include <limits.h>
 
 #define MAX_INPUT_LENGTH 50
-
-enum MenuOption{
-    INVALID_CHOICE=0,
-    ADD_EMPLOYEE=1,
-    REMOVE_EMPLOYEE=2,
-    SHOW_EMPLOYEE_HIERARCHY=3,
-    SHOW_COMPLETE_HIERARCHY=4,
-    EXIT_PROGRAM=5
-};
+#define MAX_EMPLOYEES 100
 
 typedef struct Employee Employee;
 
@@ -20,90 +11,75 @@ struct Employee{
     char name[MAX_INPUT_LENGTH];
     char designation[MAX_INPUT_LENGTH];
     Employee *manager;
-    Employee *firstReport;
-    Employee *nextSibling;
+    Employee *reports[MAX_EMPLOYEES];
+    int reportCount;
+    int active;
 };
 
 int readInteger(int *value);
 int readText(char text[],int size);
 int isValidText(const char text[]);
-Employee *findEmployee(Employee *root,int id);
-Employee *readExistingEmployee(Employee *ceo,const char prompt[]);
-int readEmployeeDetails(Employee *ceo,Employee *input,int *managerId);
+Employee *findEmployee(Employee employees[],int id);
+Employee *readExistingEmployee(Employee employees[],const char prompt[]);
+int readEmployeeDetails(Employee employees[],Employee *input,int *managerId);
 void addReport(Employee *manager,Employee *employee);
-Employee *addEmployee(Employee *ceo);
+Employee *addEmployee(Employee employees[],Employee *ceo);
 int countDirectReports(const Employee *employee);
 Employee *chooseNewParent(const Employee *employee);
 void detachFromManager(Employee *employee);
 void transferReports(Employee *employee,Employee *newParent);
-Employee *removeEmployee(Employee *ceo);
+Employee *removeEmployee(Employee employees[],Employee *ceo);
 int countReports(const Employee *employee);
 void displayEmployees(const Employee *employee);
-void displayEmployeeHierarchy(Employee *ceo);
+void displayEmployeeHierarchy(Employee employees[]);
 void displayCompleteHierarchy(const Employee *ceo);
-void freeHierarchy(Employee *employee);
 void displayMenu(void);
 
 int readInteger(int *value){
-    char input[MAX_INPUT_LENGTH];
-    int i=0,number=0,ch;
+    int ch,number=0,hasDigit=0,invalid=0;
 
     while((ch=getchar())!='\n'&&ch!=EOF){
-        if(i>=MAX_INPUT_LENGTH-1){
-            while(ch!='\n'&&ch!=EOF)
-                ch=getchar();
-            return 0;
+        if(ch>='0'&&ch<='9'){
+            int digit=ch-'0';
+            hasDigit=1;
+
+            if(number>(INT_MAX-digit)/10)
+                invalid=1;
+            else if(!invalid)
+                number=number*10+digit;
         }
-
-        input[i]=(char)ch;
-        i++;
+        else{
+            invalid=1;
+        }
     }
 
-    input[i]='\0';
+    if(ch==EOF&&!hasDigit&&!invalid)
+        return -1;
 
-    if(i==0)
+    if(!hasDigit||invalid)
         return 0;
-
-    for(int j=0;j<i;j++){
-        int digit;
-
-        if(input[j]<'0'||input[j]>'9')
-            return 0;
-
-        digit=input[j]-'0';
-
-        if(number>(INT_MAX-digit)/10)
-            return 0;
-
-        number=number*10+digit;
-    }
 
     *value=number;
     return 1;
 }
 
 int readText(char text[],int size){
-    int i=0,ch;
+    int ch,i=0,tooLong=0;
 
-    if(fgets(text,size,stdin)==NULL)
+    while((ch=getchar())!='\n'&&ch!=EOF){
+        if(i<size-1)
+            text[i++]=(char)ch;
+        else
+            tooLong=1;
+    }
+
+    if(ch==EOF&&i==0&&!tooLong)
+        return -1;
+
+    text[i]='\0';
+
+    if(tooLong)
         return 0;
-
-    while(text[i]!='\0'&&text[i]!='\n')
-        i++;
-
-    if(text[i]=='\n'){
-        text[i]='\0';
-    }
-    else if(i==size-1){
-        ch=getchar();
-
-        if(ch!='\n'&&ch!=EOF){
-            while(ch!='\n'&&ch!=EOF)
-                ch=getchar();
-
-            return 0;
-        }
-    }
 
     return 1;
 }
@@ -136,42 +112,30 @@ int isValidText(const char text[]){
     return hasLetter;
 }
 
-Employee *findEmployee(Employee *root,int id){
-    Employee *report,*found;
+Employee *findEmployee(Employee employees[],int id){
+    int i;
 
-    if(root==NULL)
-        return NULL;
-
-    if(root->id==id)
-        return root;
-
-    for(report=root->firstReport;report!=NULL;report=report->nextSibling){
-        found=findEmployee(report,id);
-
-        if(found!=NULL)
-            return found;
+    for(i=0;i<MAX_EMPLOYEES;i++){
+        if(employees[i].active&&employees[i].id==id)
+            return &employees[i];
     }
 
     return NULL;
 }
 
-Employee *readExistingEmployee(Employee *ceo,const char prompt[]){
+Employee *readExistingEmployee(Employee employees[],const char prompt[]){
     Employee *employee;
-    int id;
-
-    if(ceo==NULL){
-        printf("No employees in the organization\n");
-        return NULL;
-    }
+    int id,result;
 
     printf("%s",prompt);
+    result=readInteger(&id);
 
-    if(!readInteger(&id)||id<=0){
+    if(result!=1||id<=0){
         printf("Invalid employee ID\n");
         return NULL;
     }
 
-    employee=findEmployee(ceo,id);
+    employee=findEmployee(employees,id);
 
     if(employee==NULL)
         printf("Employee not found\n");
@@ -179,42 +143,50 @@ Employee *readExistingEmployee(Employee *ceo,const char prompt[]){
     return employee;
 }
 
-int readEmployeeDetails(Employee *ceo,Employee *input,int *managerId){
-    if(ceo==NULL)
-        printf("No employees yet. This employee will be the CEO.\n");
+int readEmployeeDetails(Employee employees[],Employee *input,int *managerId){
+    int result,i,hasEmployees=0;
+
+    for(i=0;i<MAX_EMPLOYEES;i++){
+        if(employees[i].active){
+            hasEmployees=1;
+            break;
+        }
+    }
 
     printf("Enter Employee ID: ");
+    result=readInteger(&input->id);
 
-    if(!readInteger(&input->id)||input->id<1){
+    if(result!=1||input->id<1){
         printf("Invalid employee ID\n");
         return 0;
     }
 
-    if(findEmployee(ceo,input->id)!=NULL){
+    if(findEmployee(employees,input->id)!=NULL){
         printf("Employee ID already exists\n");
         return 0;
     }
 
     printf("Enter Name: ");
+    result=readText(input->name,sizeof(input->name));
 
-    if(!readText(input->name,sizeof(input->name))||
-       !isValidText(input->name)){
+    if(result!=1||!isValidText(input->name)){
         printf("Invalid name\n");
         return 0;
     }
 
     printf("Enter Designation: ");
+    result=readText(input->designation,sizeof(input->designation));
 
-    if(!readText(input->designation,sizeof(input->designation))||
-       !isValidText(input->designation)){
+    if(result!=1||!isValidText(input->designation)){
         printf("Invalid designation\n");
         return 0;
     }
 
-    if(ceo!=NULL){
+    if(hasEmployees){
         printf("Enter Reporting Manager ID: ");
+        result=readInteger(managerId);
 
-        if(!readInteger(managerId)||*managerId<=0){
+        if(result!=1||*managerId<=0){
             printf("Invalid manager ID\n");
             return 0;
         }
@@ -224,40 +196,33 @@ int readEmployeeDetails(Employee *ceo,Employee *input,int *managerId){
             return 0;
         }
     }
+    else{
+        *managerId=0;
+        printf("This employee will be the CEO.\n");
+    }
 
     return 1;
 }
 
 void addReport(Employee *manager,Employee *employee){
-    Employee *last;
+    if(manager==NULL||employee==NULL||manager->reportCount>=MAX_EMPLOYEES)
+        return;
 
     employee->manager=manager;
-    employee->nextSibling=NULL;
-
-    if(manager->firstReport==NULL){
-        manager->firstReport=employee;
-        return;
-    }
-
-    last=manager->firstReport;
-
-    while(last->nextSibling!=NULL)
-        last=last->nextSibling;
-
-    last->nextSibling=employee;
+    manager->reports[manager->reportCount]=employee;
+    manager->reportCount++;
 }
 
-Employee *addEmployee(Employee *ceo){
+Employee *addEmployee(Employee employees[],Employee *ceo){
     Employee input={0};
-    Employee *manager=NULL;
-    Employee *newEmployee;
-    int managerId=0;
+    Employee *manager=NULL,*newEmployee=NULL;
+    int managerId=0,i;
 
-    if(!readEmployeeDetails(ceo,&input,&managerId))
+    if(!readEmployeeDetails(employees,&input,&managerId))
         return ceo;
 
     if(ceo!=NULL){
-        manager=findEmployee(ceo,managerId);
+        manager=findEmployee(employees,managerId);
 
         if(manager==NULL){
             printf("Reporting manager not found\n");
@@ -265,17 +230,22 @@ Employee *addEmployee(Employee *ceo){
         }
     }
 
-    newEmployee=malloc(sizeof(Employee));
+    for(i=0;i<MAX_EMPLOYEES;i++){
+        if(!employees[i].active){
+            newEmployee=&employees[i];
+            break;
+        }
+    }
 
     if(newEmployee==NULL){
-        printf("Memory allocation failed\n");
+        printf("Employee limit reached\n");
         return ceo;
     }
 
     *newEmployee=input;
     newEmployee->manager=NULL;
-    newEmployee->firstReport=NULL;
-    newEmployee->nextSibling=NULL;
+    newEmployee->reportCount=0;
+    newEmployee->active=1;
 
     if(manager==NULL)
         ceo=newEmployee;
@@ -283,30 +253,22 @@ Employee *addEmployee(Employee *ceo){
         addReport(manager,newEmployee);
 
     printf("Employee added successfully\n");
-
     return ceo;
 }
 
 int countDirectReports(const Employee *employee){
-    const Employee *report;
-    int count=0;
-
     if(employee==NULL)
         return 0;
 
-    for(report=employee->firstReport;report!=NULL;report=report->nextSibling)
-        count++;
-
-    return count;
+    return employee->reportCount;
 }
 
 Employee *chooseNewParent(const Employee *employee){
     Employee *sibling,*best=NULL;
-    int bestCount=0,count;
+    int i,bestCount=0,count;
 
-    for(sibling=employee->manager->firstReport;
-        sibling!=NULL;
-        sibling=sibling->nextSibling){
+    for(i=0;i<employee->manager->reportCount;i++){
+        sibling=employee->manager->reports[i];
 
         if(sibling!=employee){
             count=countDirectReports(sibling);
@@ -326,43 +288,41 @@ Employee *chooseNewParent(const Employee *employee){
 
 void detachFromManager(Employee *employee){
     Employee *manager=employee->manager;
-    Employee *previous;
+    int i,j;
 
-    if(manager->firstReport==employee){
-        manager->firstReport=employee->nextSibling;
-    }
-    else{
-        previous=manager->firstReport;
+    if(manager==NULL)
+        return;
 
-        while(previous->nextSibling!=employee)
-            previous=previous->nextSibling;
+    for(i=0;i<manager->reportCount;i++){
+        if(manager->reports[i]==employee){
+            for(j=i;j<manager->reportCount-1;j++)
+                manager->reports[j]=manager->reports[j+1];
 
-        previous->nextSibling=employee->nextSibling;
+            manager->reportCount--;
+            manager->reports[manager->reportCount]=NULL;
+            break;
+        }
     }
 
     employee->manager=NULL;
-    employee->nextSibling=NULL;
 }
 
 void transferReports(Employee *employee,Employee *newParent){
-    Employee *report=employee->firstReport;
-    Employee *next;
+    int i;
 
-    while(report!=NULL){
-        next=report->nextSibling;
-        report->nextSibling=NULL;
+    for(i=0;i<employee->reportCount;i++){
+        Employee *report=employee->reports[i];
         addReport(newParent,report);
-        report=next;
     }
 
-    employee->firstReport=NULL;
+    employee->reportCount=0;
 }
 
-Employee *removeEmployee(Employee *ceo){
+Employee *removeEmployee(Employee employees[],Employee *ceo){
     Employee *employee,*newParent;
     int hadReports;
 
-    employee=readExistingEmployee(ceo,"Enter Employee ID to remove: ");
+    employee=readExistingEmployee(employees,"Enter Employee ID to remove: ");
 
     if(employee==NULL)
         return ceo;
@@ -372,60 +332,60 @@ Employee *removeEmployee(Employee *ceo){
         return ceo;
     }
 
-    hadReports=(employee->firstReport!=NULL);
+    hadReports=(employee->reportCount>0);
     newParent=chooseNewParent(employee);
 
     detachFromManager(employee);
     transferReports(employee,newParent);
-    free(employee);
+
+    employee->active=0;
+    employee->id=0;
+    employee->name[0]='\0';
+    employee->designation[0]='\0';
+    employee->manager=NULL;
 
     printf("Employee removed successfully\n");
 
     if(hadReports)
-        printf("Direct reports moved under %d - %s\n",
-               newParent->id,newParent->name);
+        printf("Direct reports moved under %d - %s\n",newParent->id,newParent->name);
 
     return ceo;
 }
 
 int countReports(const Employee *employee){
-    const Employee *report;
-    int total=0;
+    int i,total=0;
 
     if(employee==NULL)
         return 0;
 
-    for(report=employee->firstReport;report!=NULL;report=report->nextSibling)
-        total=total+1+countReports(report);
+    for(i=0;i<employee->reportCount;i++)
+        total=total+1+countReports(employee->reports[i]);
 
     return total;
 }
 
 void displayEmployees(const Employee *employee){
-    const Employee *report;
+    int i;
 
     if(employee==NULL)
         return;
 
-    printf("%d - %s - %s\n",
-           employee->id,employee->name,employee->designation);
+    printf("%d - %s - %s\n",employee->id,employee->name,employee->designation);
 
-    for(report=employee->firstReport;report!=NULL;report=report->nextSibling)
-        displayEmployees(report);
+    for(i=0;i<employee->reportCount;i++)
+        displayEmployees(employee->reports[i]);
 }
 
-void displayEmployeeHierarchy(Employee *ceo){
+void displayEmployeeHierarchy(Employee employees[]){
     Employee *employee;
 
-    employee=readExistingEmployee(ceo,"Enter Employee ID: ");
+    employee=readExistingEmployee(employees,"Enter Employee ID: ");
 
     if(employee==NULL)
         return;
 
     displayEmployees(employee);
-
-    printf("Total Employees Under %d: %d\n",
-           employee->id,countReports(employee));
+    printf("Total Employees Under %d: %d\n",employee->id,countReports(employee));
 }
 
 void displayCompleteHierarchy(const Employee *ceo){
@@ -439,23 +399,6 @@ void displayCompleteHierarchy(const Employee *ceo){
     printf("Total Employees: %d\n",1+countReports(ceo));
 }
 
-void freeHierarchy(Employee *employee){
-    Employee *report,*next;
-
-    if(employee==NULL)
-        return;
-
-    report=employee->firstReport;
-
-    while(report!=NULL){
-        next=report->nextSibling;
-        freeHierarchy(report);
-        report=next;
-    }
-
-    free(employee);
-}
-
 void displayMenu(void){
     printf("\n===== EMPLOYEE HIERARCHY MANAGEMENT =====\n");
     printf("1. Add Employee\n");
@@ -467,42 +410,40 @@ void displayMenu(void){
 }
 
 int main(void){
+    Employee employees[MAX_EMPLOYEES]={0};
     Employee *ceo=NULL;
-    int choice;
+    int choice,result;
 
-    do{
+    while(1){
         displayMenu();
+        result=readInteger(&choice);
 
-        if(!readInteger(&choice))
-            choice=INVALID_CHOICE;
+        if(result==-1)
+            break;
+
+        if(result!=1)
+            choice=0;
 
         switch(choice){
-            case ADD_EMPLOYEE:
-                ceo=addEmployee(ceo);
+            case 1:
+                ceo=addEmployee(employees,ceo);
                 break;
-
-            case REMOVE_EMPLOYEE:
-                ceo=removeEmployee(ceo);
+            case 2:
+                ceo=removeEmployee(employees,ceo);
                 break;
-
-            case SHOW_EMPLOYEE_HIERARCHY:
-                displayEmployeeHierarchy(ceo);
+            case 3:
+                displayEmployeeHierarchy(employees);
                 break;
-
-            case SHOW_COMPLETE_HIERARCHY:
+            case 4:
                 displayCompleteHierarchy(ceo);
                 break;
-
-            case EXIT_PROGRAM:
+            case 5:
                 printf("Exiting program\n");
-                break;
-
+                return 0;
             default:
                 printf("Invalid choice\n");
         }
-    }while(choice!=EXIT_PROGRAM);
-
-    freeHierarchy(ceo);
+    }
 
     return 0;
 }
