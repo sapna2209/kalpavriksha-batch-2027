@@ -14,13 +14,24 @@ void reverseRows(int *matrix,int size);
 void rotateMatrix(int *matrix,int size);
 void copyRow(int *source,int *destination,int size);
 int averageAround(int *matrix,int size,int *previous,int *current,int row,int column);
-void smoothMatrix(int *matrix,int size);
+int smoothMatrix(int *matrix,int size);
 
 int main(void){
     int size;
-    int matrix[MAX_SIZE*MAX_SIZE];
+    int *matrix;
 
     size=readMatrixSize();
+
+    if(size==0){
+        return 1;
+    }
+
+    matrix=(int *)malloc(size*size*sizeof(int));
+
+    if(matrix==NULL){
+        printf("Memory allocation failed for matrix.\n");
+        return 1;
+    }
 
     generateMatrix(matrix,size);
 
@@ -28,46 +39,75 @@ int main(void){
     displayMatrix(matrix,size);
 
     rotateMatrix(matrix,size);
+
     printf("\nMatrix after 90 degree Clockwise Rotation:\n");
     displayMatrix(matrix,size);
 
-    smoothMatrix(matrix,size);
+    if(!smoothMatrix(matrix,size)){
+        printf("Memory allocation failed for smoothing.\n");
+        free(matrix);
+        return 1;
+    }
+
     printf("\nMatrix after Applying 3x3 Smoothing Filter:\n");
     displayMatrix(matrix,size);
+
+    free(matrix);
 
     return 0;
 }
 
 int readMatrixSize(void){
-    int size,result,ch;
+    int size,ch,digit,valid;
+    char input[100];
+    int i;
 
     while(1){
         printf("Enter matrix size (%d-%d): ",MIN_SIZE,MAX_SIZE);
 
-        result=scanf("%d",&size);
-
-        if(result==EOF){
-            exit(1);
+        if(fgets(input,sizeof(input),stdin)==NULL){
+            return 0;
         }
 
-        if(result==1&&size>=MIN_SIZE&&size<=MAX_SIZE){
+        size=0;
+        valid=1;
+        i=0;
+
+        while(input[i]!='\0'&&input[i]!='\n'){
+            if(input[i]>='0'&&input[i]<='9'){
+                digit=input[i]-'0';
+
+                if(size>MAX_SIZE){
+                    valid=0;
+                }
+                else{
+                    size=size*10+digit;
+                }
+            }
+            else{
+                valid=0;
+            }
+
+            i++;
+        }
+
+        if(valid&&i>0&&size>=MIN_SIZE&&size<=MAX_SIZE){
             return size;
         }
 
+        if(input[i]=='\0'&&i==99){
+            while((ch=getchar())!='\n'&&ch!=EOF){
+            }
+        }
+
         printf("Invalid input. Enter a whole number between %d and %d.\n",MIN_SIZE,MAX_SIZE);
-
-        while((ch=getchar())!='\n'&&ch!=EOF){
-        }
-
-        if(ch==EOF){
-            exit(1);
-        }
     }
 }
+
 /* We can use time.h with srand(time(NULL)) to generate a
    different pseudo-random sequence on each run, but it is
    not included here to keep the program simple. */
-   
+
 void generateMatrix(int *matrix,int size){
     int *cell;
 
@@ -141,7 +181,6 @@ int averageAround(int *matrix,int size,int *previous,int *current,int row,int co
                 else{
                     sum+=*(matrix+x*size+y);
                 }
-
                 count++;
             }
         }
@@ -150,10 +189,19 @@ int averageAround(int *matrix,int size,int *previous,int *current,int row,int co
     return sum/count;
 }
 
-void smoothMatrix(int *matrix,int size){
-    int previous[MAX_SIZE]={0};
-    int current[MAX_SIZE]={0};
+int smoothMatrix(int *matrix,int size){
+    int *previous;
+    int *current;
     int row,column;
+
+    previous=(int *)malloc(size*sizeof(int));
+    current=(int *)malloc(size*sizeof(int));
+
+    if(previous==NULL||current==NULL){
+        free(previous);
+        free(current);
+        return 0;
+    }
 
     for(row=0;row<size;row++){
         copyRow(matrix+row*size,current,size);
@@ -164,4 +212,9 @@ void smoothMatrix(int *matrix,int size){
 
         copyRow(current,previous,size);
     }
+
+    free(previous);
+    free(current);
+
+    return 1;
 }
