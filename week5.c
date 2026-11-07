@@ -51,6 +51,7 @@ int shrinkBlock(struct MemoryManager *memory,int index,int newSize);
 int growBlock(struct MemoryManager *memory,int index,int newSize);
 int totalFree(struct MemoryManager *memory);
 void reportFragmentation(struct MemoryManager *memory,int size);
+void updatePendingFragmentation(struct MemoryManager *memory);
 void reportBadId(struct MemoryManager *memory,int id);
 void allocateMemory(struct MemoryManager *memory);
 void releaseMemory(struct MemoryManager *memory);
@@ -153,6 +154,8 @@ int initManager(struct MemoryManager *memory,int poolSize){
 void cleanup(struct MemoryManager *memory){
     free(memory->memoryPool);
     free(memory->blockList);
+    memory->memoryPool=NULL;
+    memory->blockList=NULL;
 }
 
 void clearRange(struct MemoryManager *memory,int start,int size){
@@ -344,11 +347,11 @@ int growBlock(struct MemoryManager *memory,int index,int newSize){
     oldStart=memory->blockList[index].start;
     oldSize=memory->blockList[index].size;
     newStart=memory->blockList[j].start;
-    for(i=0;i<oldSize;i++){
-        memory->memoryPool[newStart+i]=memory->memoryPool[oldStart+i];
-    }
     if(!carveBlock(memory,j,newSize,id)){
         return -1;
+    }
+    for(i=0;i<oldSize;i++){
+        memory->memoryPool[newStart+i]=memory->memoryPool[oldStart+i];
     }
     for(i=oldSize;i<newSize;i++){
         memory->memoryPool[newStart+i]=0;
@@ -372,9 +375,21 @@ int totalFree(struct MemoryManager *memory){
 }
 
 void reportFragmentation(struct MemoryManager *memory,int size){
+    memory->pendingFragmentation=0;
+    memory->failedRequestSize=0;
     if(totalFree(memory)>=size){
         memory->pendingFragmentation=1;
         memory->failedRequestSize=size;
+    }
+}
+
+void updatePendingFragmentation(struct MemoryManager *memory){
+    if(memory->pendingFragmentation){
+        if(totalFree(memory)<memory->failedRequestSize||
+           findFreeBlock(memory,memory->failedRequestSize)!=-1){
+            memory->pendingFragmentation=0;
+            memory->failedRequestSize=0;
+        }
     }
 }
 
@@ -408,6 +423,7 @@ void allocateMemory(struct MemoryManager *memory){
         memory->memoryPool[memory->blockList[index].start+i]=0;
     }
     memory->nextAllocationId++;
+    updatePendingFragmentation(memory);
     printf("Allocation successful. ID: %d, Start: %d, Size: %d\n",id,memory->blockList[index].start,size);
 }
 
@@ -427,6 +443,7 @@ void releaseMemory(struct MemoryManager *memory){
     memory->blockList[index].status=FREE;
     memory->blockList[index].id=0;
     mergeFreeBlocks(memory);
+    updatePendingFragmentation(memory);
     printf("Allocation released.\n");
 }
 
@@ -459,9 +476,9 @@ void resizeMemory(struct MemoryManager *memory){
     }
     if(done==0){
         printf("Resize failed. Original allocation is unchanged.\n");
-        reportFragmentation(memory,newSize);
         return;
     }
+    updatePendingFragmentation(memory);
     index=findBlockById(memory,id);
     printf("Resize successful. ID: %d, Start: %d, Size: %d\n",id,memory->blockList[index].start,memory->blockList[index].size);
 }
@@ -498,5 +515,6 @@ void displayStats(struct MemoryManager *memory){
     if(memory->pendingFragmentation){
         printf("Note: The request for %d bytes failed even though %d bytes are free, because the free memory is fragmented.\n",memory->failedRequestSize,freeBytes);
         memory->pendingFragmentation=0;
+        memory->failedRequestSize=0;
     }
 }
