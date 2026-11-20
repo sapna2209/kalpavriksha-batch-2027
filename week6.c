@@ -410,6 +410,7 @@ void addEntry(VirtualFileSystem *vfs,char name[],int type){
     printf("%s '%s' created successfully.\n",label,name);
 }
 
+
 void writeFile(VirtualFileSystem *vfs,char name[],char content[],int size){
     FileNode *file=findChild(vfs->cwd,name);
     int needed=(size+BLOCK_SIZE-1)/BLOCK_SIZE;
@@ -427,7 +428,8 @@ void writeFile(VirtualFileSystem *vfs,char name[],char content[],int size){
     }
 
     if(needed>vfs->freeCount+file->blockCount){
-        printf("Disk full: %d blocks needed, only %d available. File not changed.\n",needed,vfs->freeCount+file->blockCount);
+        printf("Disk full: %d blocks needed, only %d available. File not changed.\n",
+               needed,vfs->freeCount+file->blockCount);
         return;
     }
 
@@ -440,26 +442,34 @@ void writeFile(VirtualFileSystem *vfs,char name[],char content[],int size){
         }
     }
 
-    releaseBlocks(vfs,file);
-
     for(i=0;i<needed;i++){
         block=takeFreeBlock(vfs);
 
         if(block<0){
+            
+            for(j=0;j<i;j++){
+                appendFreeBlock(vfs,newPointers[j]);
+            }
+
             free(newPointers);
-            printf("Memory error while allocating disk blocks.\n");
+
+            printf("Block allocation failed. File not changed.\n");
             return;
         }
 
         newPointers[i]=block;
+    }
+    for(i=0;i<needed;i++){
         j=0;
 
-        while(j<BLOCK_SIZE&&offset<size){
-            vfs->virtualDisk[block][j]=(unsigned char)content[offset];
+        while(j<BLOCK_SIZE && offset<size){
+            vfs->virtualDisk[newPointers[i]][j]=(unsigned char)content[offset];
             j++;
             offset++;
         }
     }
+
+    releaseBlocks(vfs,file);
 
     file->blockPointers=newPointers;
     file->blockCount=needed;
